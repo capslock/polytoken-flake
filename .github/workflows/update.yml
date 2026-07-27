@@ -1,0 +1,63 @@
+name: Update Polytoken
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: polytoken-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          github_access_token: ${{ github.token }}
+
+      - name: Check for a Polytoken update
+        id: update
+        run: |
+          nix run .#update
+          version="$(jq -r .version release.json)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          if git diff --quiet -- release.json; then
+            printf 'changed=false\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'changed=true\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate update
+        if: steps.update.outputs.changed == 'true'
+        env:
+          EXPECTED_VERSION: ${{ steps.update.outputs.version }}
+        run: |
+          nix flake check --print-build-logs
+          test "$(nix run . -- --version)" = "polytoken $EXPECTED_VERSION"
+
+      - name: Create update pull request
+        if: steps.update.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.POLYTOKEN_UPDATE_TOKEN || github.token }}
+          base: main
+          branch: automation/polytoken-update
+          delete-branch: true
+          add-paths: release.json
+          commit-message: Update Polytoken to ${{ steps.update.outputs.version }}
+          title: Update Polytoken to ${{ steps.update.outputs.version }}
+          body: |
+            Automated update of the packaged Polytoken release.
+
+            The candidate binary matched Polytoken's published SHA-256 and
+            passed `nix flake check` before this pull request was opened.

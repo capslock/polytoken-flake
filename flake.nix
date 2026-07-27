@@ -8,15 +8,19 @@
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
-      version = "0.5.6";
+      release = builtins.fromJSON (builtins.readFile ./release.json);
+      artifact =
+        release.platforms.${system}
+          or (throw "Polytoken ${release.version} has no artifact for ${system}");
+      version = release.version;
 
       polytoken = pkgs.stdenvNoCC.mkDerivation {
         pname = "polytoken";
         inherit version;
 
         src = pkgs.fetchurl {
-          url = "https://dl.polytoken.dev/${version}/linux-amd64/polytoken";
-          hash = "sha256-9mAEgTKbUf4TvJjpAUIyJR8LwynBM8Pk2K4mVQq0020=";
+          url = "https://dl.polytoken.dev/${version}/${artifact.path}";
+          inherit (artifact) hash;
         };
 
         dontUnpack = true;
@@ -35,6 +39,20 @@
           sourceProvenance = [ pkgs.lib.sourceTypes.binaryNativeCode ];
         };
       };
+
+      updater = pkgs.writeShellApplication {
+        name = "polytoken-update";
+        runtimeInputs = [
+          pkgs.coreutils
+          pkgs.curl
+          pkgs.gawk
+          pkgs.jq
+          pkgs.nix
+        ];
+        text = ''
+          exec ${pkgs.bash}/bin/bash ${./scripts/update.sh} "$@"
+        '';
+      };
     in
     {
       packages.${system} = {
@@ -42,17 +60,43 @@
         default = polytoken;
       };
 
-      apps.${system}.default = {
-        type = "app";
-        program = "${polytoken}/bin/polytoken";
-        meta.description = "Run Polytoken";
+      apps.${system} = {
+        default = {
+          type = "app";
+          program = "${polytoken}/bin/polytoken";
+          meta.description = "Run Polytoken";
+        };
+
+        update = {
+          type = "app";
+          program = "${updater}/bin/polytoken-update";
+          meta.description = "Update release.json to the latest Polytoken release";
+        };
       };
 
-      checks.${system}.version = pkgs.runCommand "polytoken-version-check" {
-        nativeBuildInputs = [ polytoken ];
-      } ''
-        polytoken --version | grep -Fx "polytoken ${version}"
-        touch "$out"
-      '';
+      checks.${system} = {
+        version = pkgs.runCommand "polytoken-version-check" {
+          nativeBuildInputs = [ polytoken ];
+        } ''
+          polytoken --version | grep -Fx "polytoken ${version}"
+          touch "$out"
+        '';
+
+        update-script = pkgs.runCommand "polytoken-update-shellcheck" {
+          nativeBuildInputs = [ pkgs.shellcheck ];
+        } ''
+          shellcheck ${./scripts/update.sh}
+          touch "$out"
+        '';
+
+        workflows = pkgs.runCommand "polytoken-workflow-check" {
+          nativeBuildInputs = [ pkgs.actionlint ];
+        } ''
+          actionlint \
+            ${./.github/workflows/ci.yml} \
+            ${./.github/workflows/update.yml}
+          touch "$out"
+        '';
+      };
     };
 }
