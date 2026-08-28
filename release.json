@@ -1,10 +1,10 @@
 {
   "channel": "latest",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "platforms": {
     "x86_64-linux": {
       "path": "linux-amd64/polytoken",
-      "hash": "sha256-CTKNMvUMZ46bBvm6U5gmeI/1tuGhXh9ppFRPnnH6aA0="
+      "hash": "sha256-CwSJQJ5+StQHhtgs73vEy6EboJ6V6H2RC3xDF5jU3NY="
     }
   }
 }
